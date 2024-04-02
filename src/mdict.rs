@@ -1,5 +1,5 @@
 use crate::{raw::RawDict, utils::*};
-use beluga_core::beluga::{Beluga, BelFileType, Metadata};
+use beluga_core::beluga::{BelFileType, Beluga, Metadata};
 use flate2::read::ZlibDecoder;
 use pbr::ProgressBar;
 use quick_xml::{

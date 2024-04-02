@@ -64,9 +64,7 @@ async fn main() {
             dict.to_raw(target);
         }
         (EXT_ENTRY, EXT_RAW_ENTRY) | (EXT_RESOURCE, EXT_RAW_RESOURCE) => {
-            let dict = Beluga::from_file(source)
-                .await
-                .expect("fail to parse beluga file");
+            let dict = Beluga::from_file(source).await;
             let entry_num = dict.metadata.entry_num;
             let mut bar = ProgressBar::new(entry_num);
             if !((target.ends_with(EXT_RAW_ENTRY) && dict.file_type == BelFileType::Entry)
