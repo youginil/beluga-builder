@@ -268,6 +268,6 @@ impl RawDict {
             }
             bar.finish();
         }
-        dict.save(dest).await.expect("fail to save beluga");
+        dict.save(dest);
     }
 }

@@ -480,10 +480,7 @@ impl Mdict {
             dict.borrow_mut().input_entry(key, value);
         })
         .unwrap();
-        dict.borrow_mut()
-            .save(dest)
-            .await
-            .expect("fail to convert to beluga");
+        dict.borrow_mut().save(dest);
     }
 
     pub async fn to_beluga_data(&mut self, dest: &str) {
@@ -493,10 +490,7 @@ impl Mdict {
             dict.borrow_mut().input_entry(key, value);
         })
         .unwrap();
-        dict.borrow_mut()
-            .save(dest)
-            .await
-            .expect("fail to convert to beluga");
+        dict.borrow_mut().save(dest);
     }
 
     pub fn to_raw(&mut self, dest: &str) {
