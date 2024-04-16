@@ -80,6 +80,7 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
+          name: beluga-builder ${{ github.ref_name }}
           files: |
             ${{ env.ASSET }}
           repository: youginil/beluga-project
