@@ -106,10 +106,11 @@ dependencies = [
 
 [[package]]
 name = "beluga-builder"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "beluga-core",
  "clap",
+ "encoding_rs",
  "flate2",
  "pbr",
  "quick-xml",
@@ -260,6 +261,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3d0c8c8752312f9713efd397ff63acb9f85585afbf179282e720e7704954dd5"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "encoding_rs"
+version = "0.8.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b45de904aa0b010bce2ab45264d0631681847fa7b6f2eaa7dab7619943bc4f59"
+dependencies = [
+ "cfg-if",
 ]
 
 [[package]]

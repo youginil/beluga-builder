@@ -1,5 +1,6 @@
 use crate::{raw::RawDict, utils::*};
 use beluga_core::beluga::{BelFileType, Beluga, Metadata};
+use encoding_rs::GB18030;
 use flate2::read::ZlibDecoder;
 use pbr::ProgressBar;
 use quick_xml::{
@@ -66,6 +67,7 @@ pub struct Mdict {
     attrs: HashMap<String, String>,
     v2: bool,
     encrypt: u8,
+    encoding: String,
     utf16: bool,
     summary: Summary,
     kis: Vec<KeywordIndex>,
@@ -101,6 +103,7 @@ impl Mdict {
             attrs: HashMap::new(),
             v2: false,
             encrypt: 0,
+            encoding: "".to_string(),
             utf16: false,
             summary: Summary {
                 num_blocks: 0,
@@ -131,11 +134,10 @@ impl Mdict {
         }
     }
 
-    fn curpos(&mut self) -> Result<u64, String> {
-        match self.file.seek(SeekFrom::Current(0)) {
-            Ok(n) => Ok(n),
-            Err(e) => Err(e.to_string()),
-        }
+    fn curpos(&mut self) -> u64 {
+        self.file
+            .seek(SeekFrom::Current(0))
+            .expect("fail to get current position")
     }
 
     fn read(&mut self, n: usize) -> Result<Vec<u8>, String> {
@@ -167,55 +169,47 @@ impl Mdict {
         Ok(n as u64)
     }
 
-    fn parse<F>(&mut self, cb: F) -> Result<(), String>
+    fn parse<F>(&mut self, cb: F)
     where
         F: Fn(String, Vec<u8>),
     {
-        if let Err(e) = self.file.seek(SeekFrom::Start(0)) {
-            return Err(e.to_string());
-        }
-        self.parse_header().unwrap();
+        self.file
+            .seek(SeekFrom::Start(0))
+            .expect("fail to locate at 0");
+        self.parse_header();
         // skip checksum
-        if let Err(e) = self.file.seek(SeekFrom::Current(4)) {
-            return Err(e.to_string());
-        }
-        self.parse_summary().unwrap();
+        self.file
+            .seek(SeekFrom::Current(4))
+            .expect("fail to skip checksum");
+        self.parse_summary();
         //skip checksum
-        if let Err(e) = self.file.seek(SeekFrom::Current(4)) {
-            return Err(e.to_string());
-        }
-        self.parse_keyword_index().unwrap();
-        self.parse_keyword_block().unwrap();
-        self.parse_record_summary().unwrap();
-        self.parse_record_index().unwrap();
+        self.file
+            .seek(SeekFrom::Current(4))
+            .expect("fail to skip checksum");
+        self.parse_keyword_index();
+        self.parse_keyword_block();
+        self.parse_record_summary();
+        self.parse_record_index();
         println!(">>> Parsing words");
         // @todo performace problem
         let kis = self.kis.clone();
         let mut pb = ProgressBar::new(self.summary.num_entries);
         for item in kis.iter() {
             for kw in item.block.iter() {
-                match self.parse_definition(kw) {
-                    Ok((key, data)) => cb(key, data),
-                    Err(e) => eprintln!("{}", e),
-                }
+                let (k, v) = self.parse_definition(kw);
+                cb(k, v);
                 pb.inc();
             }
         }
         pb.finish_print("Done");
-        Ok(())
     }
 
-    fn parse_header(&mut self) -> Result<(), String> {
+    fn parse_header(&mut self) {
         println!(">>> Parsing Header");
-        let length = self.read_u32()?;
-        let buf = self.read(length as usize)?;
-        let buf = u8v_to_u16v(&buf, Endianness::Little)?;
-        let content = match String::from_utf16(&buf) {
-            Ok(s) => s,
-            Err(e) => {
-                return Err(e.to_string());
-            }
-        };
+        let length = self.read_u32().expect("fail to read header length");
+        let buf = self.read(length as usize).expect("fail to read header");
+        let buf = u8v_to_u16v(&buf, Endianness::Little).expect("invalid utf16 encode");
+        let content = String::from_utf16(&buf).expect("fail to parse utf16 string");
 
         let mut reader = Reader::from_str(content.as_str());
         reader.trim_text(true);
@@ -226,22 +220,14 @@ impl Mdict {
                         for attr in e.attributes() {
                             match attr {
                                 Ok(Attribute { key: k, value: v }) => {
-                                    let key = match std::str::from_utf8(k.as_ref()) {
-                                        Ok(k) => k,
-                                        Err(e) => {
-                                            return Err(e.to_string());
-                                        }
-                                    };
-                                    let value = match String::from_utf8(v.into_owned()) {
-                                        Ok(v) => v,
-                                        Err(e) => {
-                                            return Err(e.to_string());
-                                        }
-                                    };
+                                    let key = std::str::from_utf8(k.as_ref())
+                                        .expect("fail to parse utf8 string");
+                                    let value = String::from_utf8(v.into_owned())
+                                        .expect("fail to parse utf8 string");
                                     self.attrs.insert(String::from(key), value);
                                 }
                                 Err(e) => {
-                                    return Err(format!("Invalid attribute: {:?}", e));
+                                    panic!("Invalid attribute: {:?}", e);
                                 }
                             }
                         }
@@ -255,77 +241,78 @@ impl Mdict {
                 _ => (),
             }
         }
+        println!("{:?}", self.attrs);
         let version = match self.attrs.get("GeneratedByEngineVersion") {
             Some(v) => v,
             None => {
-                return Err(String::from("No field: GeneratedByEngineVersion"));
+                panic!("No field: GeneratedByEngineVersion");
             }
         };
-        let version = match version.parse::<f32>() {
-            Ok(n) => n,
-            Err(e) => {
-                return Err(e.to_string());
-            }
-        };
+        let version = version.parse::<f32>().expect("invalid version");
         if version >= 2.0 {
             self.v2 = true;
         }
-        let encrypt = match self.attrs.get("Encrypted") {
-            Some(s) => s,
-            None => {
-                return Err(String::from("No field: Encrypted"));
-            }
-        };
+        let encrypt = self
+            .attrs
+            .get("Encrypted")
+            .expect("`Encrypt` field is missing");
         if encrypt.as_str().to_lowercase() == "no" {
             self.encrypt = 0;
         } else {
-            self.encrypt = match encrypt.parse::<u8>() {
-                Ok(v) => v,
-                Err(e) => {
-                    return Err(e.to_string());
-                }
-            };
+            self.encrypt = encrypt.parse::<u8>().expect("invalid encrypt");
         }
-        let encoding = match self.attrs.get("Encoding") {
-            Some(s) => s.as_str(),
-            None => "",
+        self.encoding = match self.attrs.get("Encoding") {
+            Some(s) => s.clone(),
+            None => "".to_string(),
         };
-        self.utf16 = encoding == "UTF16" || encoding == "";
-        Ok(())
+        self.utf16 = self.encoding == "UTF16" || self.encoding == "";
     }
 
-    fn parse_summary(&mut self) -> Result<(), String> {
+    fn parse_summary(&mut self) {
         println!(">>> Parsing Summary");
-        self.summary.num_blocks = self.read_number()?;
-        self.summary.num_entries = self.read_number()?;
+        self.summary.num_blocks = self.read_number().expect("fail to read block number");
+        self.summary.num_entries = self.read_number().expect("fail to read entry number");
         if self.v2 {
-            self.summary.key_index_decomp_len = self.read_number()?;
+            self.summary.key_index_decomp_len =
+                self.read_number().expect("fail to read decompressed size");
         }
-        self.summary.key_index_comp_len = self.read_number()?;
-        self.summary.key_blocks_len = self.read_number()?;
+        self.summary.key_index_comp_len =
+            self.read_number().expect("fail to read compressed length");
+        self.summary.key_blocks_len = self.read_number().expect("fail to read block number");
         println!("{:?}", self.summary);
-        Ok(())
     }
 
-    fn parse_keyword_index(&mut self) -> Result<(), String> {
+    fn parse_keyword_index(&mut self) {
         println!(">>> Parsing Key Index");
-        let mut buf = self.read(self.summary.key_index_comp_len as usize)?;
+        let mut buf = self
+            .read(self.summary.key_index_comp_len as usize)
+            .expect("fail to read key_index_comp_len");
         let buf = read_block(
             &mut buf,
             self.summary.key_index_decomp_len as usize,
             self.encrypt,
-        )?;
+        );
         let buf = Rc::new(buf);
-        let mut scanner = Scanner::new(buf, self.v2, self.utf16);
+        let mut scanner = Scanner::new(buf, self.v2, &self.encoding, self.utf16);
         let mut block_offset = 0;
         for i in 0..self.summary.num_blocks {
-            let num_entries = scanner.read_number()?;
-            let first_size = scanner.read_short_number()?;
-            let first_word = scanner.read_text(first_size as usize)?;
-            let last_size = scanner.read_short_number()?;
-            let last_word = scanner.read_text(last_size as usize)?;
-            let comp_size = scanner.read_number()?;
-            let decomp_size = scanner.read_number()?;
+            let num_entries = scanner.read_number().expect("fail to read entry num");
+            let first_size = scanner
+                .read_short_number()
+                .expect("fail to read first word size");
+            let first_word = scanner
+                .read_text(first_size as usize)
+                .expect("fail to read first word");
+            let last_size = scanner
+                .read_short_number()
+                .expect("fail to read last word size");
+            let last_word = scanner
+                .read_text(last_size as usize)
+                .expect("fail to read last word");
+            let comp_size = scanner.read_number().expect("fail to read compressed size");
+            let decomp_size = scanner
+                .read_number()
+                .expect("fail to read decompressed size");
             self.kis.insert(
                 i as usize,
                 KeywordIndex {
@@ -341,23 +328,26 @@ impl Mdict {
             block_offset += comp_size;
         }
         println!("keyword index length is {}", self.kis.len());
-        Ok(())
     }
 
-    fn parse_keyword_block(&mut self) -> Result<(), String> {
+    fn parse_keyword_block(&mut self) {
         println!(">>> Parsing keyword blocks");
-        let buf = self.read(self.summary.key_blocks_len as usize)?;
+        let buf = self
+            .read(self.summary.key_blocks_len as usize)
+            .expect("fail to read key_blocks_len");
         let buf = Rc::new(buf);
-        let mut scanner = Scanner::new(buf, self.v2, self.utf16);
+        let mut scanner = Scanner::new(buf, self.v2, &self.encoding, self.utf16);
         for item in self.kis.iter_mut() {
             scanner.seek(item.block_offset as usize);
-            let mut bf = scanner.read(item.comp_size as usize)?;
-            let b = read_block(&mut bf, item.decomp_size as usize, 0)?;
+            let mut bf = scanner
+                .read(item.comp_size as usize)
+                .expect("fail to read compressed data");
+            let b = read_block(&mut bf, item.decomp_size as usize, 0);
             let b = Rc::new(b);
-            let mut bs = Scanner::new(b, self.v2, self.utf16);
+            let mut bs = Scanner::new(b, self.v2, &self.encoding, self.utf16);
             for i in 0..item.num_entries {
-                let offset = bs.read_number()?;
-                let key = bs.read_text_unsized()?;
+                let offset = bs.read_number().expect("fail to read entry offset");
+                let key = bs.read_text_unsized().expect("fail to read entry text");
                 if i > 1 {
                     item.block[(i - 1) as usize].size =
                         offset - item.block[(i - 1) as usize].offset;
@@ -375,48 +365,47 @@ impl Mdict {
                 item.block.len()
             );
         }
-        Ok(())
     }
 
-    fn parse_record_summary(&mut self) -> Result<(), String> {
+    fn parse_record_summary(&mut self) {
         println!(">>> Paring record summary");
-        let buf = self.read(32)?;
+        let buf = self.read(32).expect("fail to read summary size");
         let buf = Rc::new(buf);
-        let mut scanner = Scanner::new(buf, self.v2, self.utf16);
-        self.record_summary.num_blocks = scanner.read_number()?;
-        self.record_summary.num_entries = scanner.read_number()?;
-        self.record_summary.index_len = scanner.read_number()?;
-        self.record_summary.blocks_len = scanner.read_number()?;
-        self.record_summary.blocks_pos = self.curpos()? + self.record_summary.index_len;
+        let mut scanner = Scanner::new(buf, self.v2, &self.encoding, self.utf16);
+        self.record_summary.num_blocks = scanner.read_number().expect("fail to read block number");
+        self.record_summary.num_entries = scanner.read_number().expect("fail to read entry number");
+        self.record_summary.index_len = scanner.read_number().expect("fail to read index number");
+        self.record_summary.blocks_len = scanner.read_number().expect("fail to read block number");
+        self.record_summary.blocks_pos = self.curpos() + self.record_summary.index_len;
         println!("{:?}", self.record_summary);
-        Ok(())
     }
 
-    fn parse_record_index(&mut self) -> Result<(), String> {
+    fn parse_record_index(&mut self) {
         println!(">>> Parsing record index");
-        let buf = self.read(self.record_summary.index_len as usize)?;
+        let buf = self
+            .read(self.record_summary.index_len as usize)
+            .expect("fail to read index length");
         let buf = Rc::new(buf);
-        let mut scanner = Scanner::new(buf, self.v2, self.utf16);
+        let mut scanner = Scanner::new(buf, self.v2, &self.encoding, self.utf16);
         let mut p0 = self.record_summary.blocks_pos;
         let mut p1: u64 = 0;
         for _ in 0..self.record_summary.num_blocks {
             self.record_index.push((p0, p1));
-            p0 += scanner.read_number()?;
-            p1 += scanner.read_number()?;
+            p0 += scanner.read_number().expect("fail to read index offset");
+            p1 += scanner.read_number().expect("fail to read index size");
         }
         self.record_index.push((p0, p1));
-        Ok(())
     }
 
-    fn parse_definition(&mut self, kw: &Keyword) -> Result<(String, Vec<u8>), String> {
+    fn parse_definition(&mut self, kw: &Keyword) -> (String, Vec<u8>) {
         // println!(">>> Parsing definition of \"{}\"", kw.key);
         if self.record_index.len() == 0 {
-            return Err(String::from("Invalid record index length"));
+            panic!("Invalid record index length");
         }
         if kw.offset > self.record_index[self.record_index.len() - 1].1
             || kw.offset < self.record_index[0].1
         {
-            return Err(String::from("Out of index of record"));
+            panic!("Out of index of record");
         }
         let mut hi = self.record_index.len() - 1;
         let mut li: usize = 0;
@@ -445,21 +434,25 @@ impl Mdict {
         let mut scanner: Scanner;
         if self.cache_offset == comp_offset && self.cache.len() > 0 {
             // todo performance
-            scanner = Scanner::new(self.cache.clone(), self.v2, self.utf16);
+            scanner = Scanner::new(self.cache.clone(), self.v2, &self.encoding, self.utf16);
         } else {
             self.seek(comp_offset).unwrap();
-            let mut buffer = self.read(comp_size as usize)?;
-            let buf = read_block(&mut buffer, decomp_size as usize, 0)?;
+            let mut buffer = self
+                .read(comp_size as usize)
+                .expect("fail to read compressed data");
+            let buf = read_block(&mut buffer, decomp_size as usize, 0);
             let buf = Rc::new(buf);
             self.cache_offset = comp_offset;
             // todo performance
             self.cache = Rc::clone(&buf);
-            scanner = Scanner::new(buf, self.v2, self.utf16);
+            scanner = Scanner::new(buf, self.v2, &self.encoding, self.utf16);
         }
         scanner.forward((kw.offset - decomp_offset) as usize);
         let data: Vec<u8>;
         if self.is_index {
-            let txt = scanner.read_text_unsized()?;
+            let txt = scanner
+                .read_text_unsized()
+                .expect("fail to read definition");
             data = txt.as_bytes().to_vec();
         } else {
             let mut size = kw.size as usize;
@@ -467,10 +460,12 @@ impl Mdict {
             if size == 0 {
                 size = scanner.buf.len() - scanner.pos;
             }
-            data = scanner.read(size as usize)?;
+            data = scanner
+                .read(size as usize)
+                .expect("fail to read definition");
         }
         let key = kw.key.clone();
-        Ok((key, data))
+        (key, data)
     }
 
     pub async fn to_beluga_index(&mut self, dest: &str) {
@@ -478,8 +473,7 @@ impl Mdict {
         let dict = RefCell::new(Beluga::new(meta, BelFileType::Entry));
         self.parse(|key, value| {
             dict.borrow_mut().input_entry(key, value);
-        })
-        .unwrap();
+        });
         dict.borrow_mut().save(dest);
     }
 
@@ -488,15 +482,13 @@ impl Mdict {
         let dict = RefCell::new(Beluga::new(meta, BelFileType::Resource));
         self.parse(|key, value| {
             dict.borrow_mut().input_entry(key, value);
-        })
-        .unwrap();
+        });
         dict.borrow_mut().save(dest);
     }
 
     pub fn to_raw(&mut self, dest: &str) {
         let raw = RefCell::new(RawDict::new(dest));
-        self.parse(|key, value| raw.borrow_mut().insert_entry(key.as_str(), &value))
-            .unwrap();
+        self.parse(|key, value| raw.borrow_mut().insert_entry(key.as_str(), &value));
         raw.borrow_mut().flush_entry_cache();
     }
 }
@@ -506,11 +498,12 @@ struct Scanner {
     pos: usize,
     v2: bool,
     utf16: bool,
+    encoding: String,
     text_tail: usize,
 }
 
 impl Scanner {
-    fn new(buf: Rc<Vec<u8>>, v2: bool, utf16: bool) -> Self {
+    fn new(buf: Rc<Vec<u8>>, v2: bool, encoding: &str, utf16: bool) -> Self {
         let mut text_tail: usize = 0;
         if v2 {
             if utf16 {
@@ -523,6 +516,7 @@ impl Scanner {
             buf,
             pos: 0,
             v2,
+            encoding: encoding.to_string(),
             utf16,
             text_tail,
         }
@@ -583,14 +577,18 @@ impl Scanner {
             let buf = u8v_to_u16v(&buf, Endianness::Little)?;
             self.forward(self.text_tail);
             return match String::from_utf16(&buf) {
-                Ok(s) => Ok(s),
+                Ok(s) => Ok(s.trim().to_string()),
                 Err(e) => Err(e.to_string()),
             };
         }
         let buf = self.read(n)?;
         self.forward(self.text_tail);
+        if self.encoding == "GBK" || self.encoding == "GB2312" {
+            let (data, _, _) = GB18030.decode(&buf[..]);
+            return Ok(data.into_owned().trim().to_string());
+        }
         match String::from_utf8(buf) {
-            Ok(s) => Ok(s),
+            Ok(s) => Ok(s.trim().to_string()),
             Err(e) => Err(e.to_string()),
         }
     }
@@ -625,6 +623,10 @@ impl Scanner {
             };
         }
         self.forward(1);
+        if self.encoding == "GBK" || self.encoding == "GB2312" {
+            let (data, _, _) = GB18030.decode(&buf[..]);
+            return Ok(data.into());
+        }
         match String::from_utf8(buf) {
             Ok(s) => Ok(s),
             Err(e) => Err(e.to_string()),
@@ -647,7 +649,7 @@ pub fn decrypt(buf: &mut Vec<u8>, key: [u8; 8]) {
     }
 }
 
-fn read_block(buf: &mut Vec<u8>, decompress_length: usize, encrypt: u8) -> Result<Vec<u8>, String> {
+fn read_block(buf: &mut Vec<u8>, decompress_length: usize, encrypt: u8) -> Vec<u8> {
     let compress = buf[0];
     let mut result: Vec<u8>;
     if compress == 0 {
@@ -668,7 +670,7 @@ fn read_block(buf: &mut Vec<u8>, decompress_length: usize, encrypt: u8) -> Resul
             let mut d = ZlibDecoder::new(&buf[..]);
             result = Vec::new();
             if let Err(e) = d.read_to_end(&mut result) {
-                return Err(e.to_string());
+                panic!("fail to extract data. {:?}", e);
             }
         } else {
             result = Vec::with_capacity(decompress_length);
@@ -681,5 +683,5 @@ fn read_block(buf: &mut Vec<u8>, decompress_length: usize, encrypt: u8) -> Resul
             }
         }
     }
-    Ok(result)
+    result
 }

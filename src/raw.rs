@@ -36,7 +36,8 @@ impl RawDict {
         let conn = Connection::open(filepath).unwrap();
         conn.execute_batch(
             format!(
-                "CREATE TABLE {} (
+                "DROP TABLE IF EXISTS {};
+                CREATE TABLE {} (
                 id     INTEGER PRIMARY KEY AUTOINCREMENT,
                 name   TEXT UNIQUE,
                 text   TEXT,
@@ -46,14 +47,15 @@ impl RawDict {
                 name
             );
             ",
-                ENTRY_TABLE, ENTRY_TABLE
+                ENTRY_TABLE, ENTRY_TABLE, ENTRY_TABLE
             )
             .as_str(),
         )
         .unwrap();
         conn.execute_batch(
             format!(
-                "CREATE TABLE {} (
+                "DROP TABLE IF EXISTS {};
+                CREATE TABLE {} (
                     id      INTEGER PRIMARY KEY AUTOINCREMENT,
                     name    TEXT    UNIQUE
                                     NOT NULL,
@@ -63,7 +65,7 @@ impl RawDict {
                     name
                 );
                 ",
-                TOKEN_TABLE, TOKEN_TABLE
+                TOKEN_TABLE, TOKEN_TABLE, TOKEN_TABLE
             )
             .as_str(),
         )
@@ -128,9 +130,13 @@ impl RawDict {
             let mut stmt = tx.prepare(sql.as_str()).unwrap();
             for wd in &self.entry_cache {
                 if field == "text" {
-                    stmt.execute(params![wd.name, wd.text]).unwrap();
+                    if let Err(e) = stmt.execute(params![wd.name, wd.text]) {
+                        eprintln!("fail to insert: {}\n {}", wd.name, e);
+                    }
                 } else {
-                    stmt.execute(params![wd.name, wd.binary]).unwrap();
+                    if let Err(e) = stmt.execute(params![wd.name, wd.binary]) {
+                        eprintln!("fail to insert: {}\n {}", wd.name, e);
+                    }
                 }
             }
         }

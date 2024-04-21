@@ -1,5 +1,5 @@
 use beluga_core::beluga::*;
-use clap::{Arg, ArgAction, Command};
+use clap::{Arg, Command};
 use mdict::*;
 use pbr::ProgressBar;
 use raw::RawDict;
@@ -12,12 +12,12 @@ mod utils;
 #[tokio::main]
 async fn main() {
     let matches = Command::new("Beluga Dictionary Builder")
-        .version("1.0.0")
+        .version("0.1.3")
+        .about("Transform dictionary format. `.mdx` -> `.bel-db`, `.mdd` -> `.beld-db`, `.bel-db` <-> `.bel`, `.beld-db` <->`.beld`")
         .arg(
             Arg::new("input")
                 .short('i')
-                .action(ArgAction::Append)
-                .num_args(1..)
+                .num_args(1)
                 .value_name("SOURCE")
                 .help("Source file")
                 .required(true),
@@ -26,20 +26,13 @@ async fn main() {
             Arg::new("output")
                 .short('o')
                 .num_args(1)
-                .value_name("OUTPUT")
+                .value_name("TARGET")
+                .help("Target file")
                 .required(true),
         )
         .get_matches();
-    let mut sources: Vec<&String> = Vec::new();
-    let vals: Vec<&String> = matches.get_many("input").expect("No input").collect();
-    for item in vals {
-        sources.push(item);
-    }
-    if sources.len() == 0 {
-        panic!("No input file");
-    }
-    let source = sources[0].as_str();
-    let target: &String = matches.get_one("output").expect("required");
+    let source: &String = matches.get_one("input").expect("no source file");
+    let target: &String = matches.get_one("output").expect("no target file");
 
     let source_ext = match Path::new(source).extension() {
         Some(v) => v.to_str().unwrap(),
@@ -47,7 +40,7 @@ async fn main() {
     };
     let target_ext = match Path::new(target).extension() {
         Some(v) => v.to_str().unwrap(),
-        None => panic!("Invalid output file extension"),
+        None => panic!("Invalid target file extension"),
     };
 
     match (source_ext, target_ext) {
