@@ -287,11 +287,7 @@ impl Mdict {
         let mut buf = self
             .read(self.summary.key_index_comp_len as usize)
             .expect("fail to read key_index_comp_len");
-        let buf = read_block(
-            &mut buf,
-            self.summary.key_index_decomp_len as usize,
-            self.encrypt,
-        );
+        let buf = read_block(&mut buf, self.summary.key_index_decomp_len, self.encrypt);
         let buf = Rc::new(buf);
         let mut scanner = Scanner::new(buf, self.v2, &self.encoding, self.utf16);
         let mut block_offset = 0;
@@ -342,7 +338,7 @@ impl Mdict {
             let mut bf = scanner
                 .read(item.comp_size as usize)
                 .expect("fail to read compressed data");
-            let b = read_block(&mut bf, item.decomp_size as usize, 0);
+            let b = read_block(&mut bf, item.decomp_size, 0);
             let b = Rc::new(b);
             let mut bs = Scanner::new(b, self.v2, &self.encoding, self.utf16);
             for i in 0..item.num_entries {
@@ -440,7 +436,7 @@ impl Mdict {
             let mut buffer = self
                 .read(comp_size as usize)
                 .expect("fail to read compressed data");
-            let buf = read_block(&mut buffer, decomp_size as usize, 0);
+            let buf = read_block(&mut buffer, decomp_size, 0);
             let buf = Rc::new(buf);
             self.cache_offset = comp_offset;
             // todo performance
@@ -568,9 +564,17 @@ impl Scanner {
         Ok(0u16 | (buf[0] as u16))
     }
 
-    /**
-     * @todo other Encoding compatible
-     */
+    fn transform_encoding(&self, buf: &[u8]) -> Result<String, String> {
+        if self.encoding == "GBK" || self.encoding == "GB2312" {
+            let (data, _, _) = GB18030.decode(&buf[..]);
+            return Ok(data.into_owned().trim().to_string());
+        }
+        match String::from_utf8(buf.to_vec()) {
+            Ok(s) => Ok(s.trim().to_string()),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
     fn read_text(&mut self, n: usize) -> Result<String, String> {
         if self.utf16 {
             let buf = self.read(n * 2)?;
@@ -583,14 +587,7 @@ impl Scanner {
         }
         let buf = self.read(n)?;
         self.forward(self.text_tail);
-        if self.encoding == "GBK" || self.encoding == "GB2312" {
-            let (data, _, _) = GB18030.decode(&buf[..]);
-            return Ok(data.into_owned().trim().to_string());
-        }
-        match String::from_utf8(buf) {
-            Ok(s) => Ok(s.trim().to_string()),
-            Err(e) => Err(e.to_string()),
-        }
+        self.transform_encoding(&buf[..])
     }
 
     fn read_text_unsized(&mut self) -> Result<String, String> {
@@ -623,14 +620,7 @@ impl Scanner {
             };
         }
         self.forward(1);
-        if self.encoding == "GBK" || self.encoding == "GB2312" {
-            let (data, _, _) = GB18030.decode(&buf[..]);
-            return Ok(data.into());
-        }
-        match String::from_utf8(buf) {
-            Ok(s) => Ok(s),
-            Err(e) => Err(e.to_string()),
-        }
+        self.transform_encoding(&buf[..])
     }
 }
 
@@ -649,7 +639,8 @@ pub fn decrypt(buf: &mut Vec<u8>, key: [u8; 8]) {
     }
 }
 
-fn read_block(buf: &mut Vec<u8>, decompress_length: usize, encrypt: u8) -> Vec<u8> {
+fn read_block(buf: &mut Vec<u8>, decompress_length: u64, encrypt: u8) -> Vec<u8> {
+    dbg!(&buf[0..20], decompress_length);
     let compress = buf[0];
     let mut result: Vec<u8>;
     if compress == 0 {
@@ -672,8 +663,8 @@ fn read_block(buf: &mut Vec<u8>, decompress_length: usize, encrypt: u8) -> Vec<u
             if let Err(e) = d.read_to_end(&mut result) {
                 panic!("fail to extract data. {:?}", e);
             }
-        } else {
-            result = Vec::with_capacity(decompress_length);
+        } else if compress == 1 {
+            result = Vec::with_capacity(decompress_length as usize);
             let (_, e) = LZOContext::decompress_to_slice(&buf[..], &mut result);
             match e {
                 LZOError::OK => {}
@@ -681,6 +672,8 @@ fn read_block(buf: &mut Vec<u8>, decompress_length: usize, encrypt: u8) -> Vec<u
                     panic!("LZO decompress error");
                 }
             }
+        } else {
+            panic!("invalid compress method. {}", compress);
         }
     }
     result
