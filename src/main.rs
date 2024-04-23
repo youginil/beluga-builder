@@ -1,19 +1,16 @@
 use beluga_core::beluga::*;
 use clap::{Arg, Command};
-use mdict::*;
 use pbr::ProgressBar;
 use raw::RawDict;
 use std::path::Path;
 
-mod mdict;
 mod raw;
-mod utils;
 
 #[tokio::main]
 async fn main() {
     let matches = Command::new("Beluga Dictionary Builder")
-        .version("0.1.3")
-        .about("Transform dictionary format. `.mdx` -> `.bel-db`, `.mdd` -> `.beld-db`, `.bel-db` <-> `.bel`, `.beld-db` <->`.beld`")
+        .version("0.2.0")
+        .about("Transform dictionary format. `.bel-db` <-> `.bel`, `.beld-db` <->`.beld`")
         .arg(
             Arg::new("input")
                 .short('i')
@@ -44,18 +41,6 @@ async fn main() {
     };
 
     match (source_ext, target_ext) {
-        ("mdx", EXT_ENTRY) => {
-            let mut dict = Mdict::new(source).unwrap();
-            dict.to_beluga_index(target).await;
-        }
-        ("mdd", EXT_RESOURCE) => {
-            let mut dict = Mdict::new(source).unwrap();
-            dict.to_beluga_data(target).await;
-        }
-        ("mdx", EXT_RAW_ENTRY) | ("mdd", EXT_RAW_RESOURCE) => {
-            let mut dict = Mdict::new(source).unwrap();
-            dict.to_raw(target);
-        }
         (EXT_ENTRY, EXT_RAW_ENTRY) | (EXT_RESOURCE, EXT_RAW_RESOURCE) => {
             let dict = Beluga::from_file(source).await;
             let entry_num = dict.metadata.entry_num;
