@@ -83,5 +83,5 @@ jobs:
           name: beluga-builder ${{ github.ref_name }}
           files: |
             ${{ env.ASSET }}
-          repository: youginil/beluga
+          repository: youginil/beluga-builder
           token: ${{ secrets.TOKEN }}
