@@ -1,16 +1,16 @@
 [package]
 name = "beluga-builder"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-flate2 = "1.0.28"
+flate2 = "1.0.34"
 pbr = "1.1.1"
-clap = "4.5.4"
-rusqlite = {version = "0.31.0", features = ["bundled"] }
+clap = "4.5.19"
+rusqlite = {version = "0.32.0", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.37.0", features = ["full"] }
+tokio = { version = "1.40.0", features = ["full"] }
 beluga-core = {path = "./beluga-core"}
