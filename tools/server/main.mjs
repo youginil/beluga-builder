@@ -64,6 +64,7 @@ router.post("/api/load", (ctx, next) => {
       resourceDB = new Database(dataFile);
     }
   } catch (e) {
+    console.log(e);
     entryDB?.close();
     respondError(ctx, 400, "Invalid file path");
     return next();

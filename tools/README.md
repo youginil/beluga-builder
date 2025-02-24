@@ -7,6 +7,7 @@
 - Python
 - `pip install pyglossary`
 - `pip install progress2`
+- `pip install lxml`
 
 ### Run Script
 

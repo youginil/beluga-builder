@@ -58,5 +58,11 @@
         "mime": "^4.0.1",
         "monaco-editor": "^0.47.0",
         "solid-js": "^1.8.16"
+    },
+    "pnpm": {
+        "onlyBuiltDependencies": [
+            "better-sqlite3",
+            "esbuild"
+        ]
     }
 }

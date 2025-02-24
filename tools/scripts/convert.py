@@ -2,7 +2,8 @@ import math
 import sys
 from pathlib import Path
 from typing import List
-from pyglossary import Glossary, ui_type
+from pyglossary import ui_type
+from pyglossary.glossary_v2 import Glossary
 import sqlite3
 from progressbar import ProgressBar
 
@@ -34,7 +35,7 @@ class Pbr(ui_type.UIType):
 
 Glossary.init()
 glos = Glossary(ui=Pbr())
-if not glos.read(source_file, direct=True):
+if not glos.directRead(source_file):
     raise RuntimeError("fail to read source file")
 
 entry_table = "entry"

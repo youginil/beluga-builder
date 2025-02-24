@@ -17,12 +17,20 @@ export const entryOperation: EntryOperation = async (
     }
     let changed = true;
     const $ = cheerio.load(entry.text);
-    $(
-        'link[href="LongmanDictionaryOfContemporaryEnglish6thEnEn.css"]',
-    ).remove();
-    $(
-        'script[src="LongmanDictionaryOfContemporaryEnglish6thEnEn.js"]',
-    ).remove();
+    // $(
+    //     'link[href="thes.css"]',
+    // ).remove();
+    // $(
+    //     'script[src="thes.js"]',
+    // ).remove();
+    // $(
+    //     'script[src="config.ini"]',
+    // ).remove();
+    $('a[href^="bword://"]').each((_, el) => {
+        const href = $(el).attr("href")!;
+        const newHref = href.replace(/^bword/, "entry");
+        $(el).attr("href", newHref);
+    });
     if (changed) {
         entry.text = $("body").html() ?? entry.text;
         return ["text"];
